@@ -12,7 +12,8 @@ Analyzed business sales data to identify revenue trends, top-selling
 products, high-value categories, and regional performance.
 
 ## Tools Used
-- Power BI
+- VS CODE
+- 
 
 ## Key Insights
 - 
