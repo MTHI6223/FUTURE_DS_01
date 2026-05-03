@@ -1,301 +1,252 @@
-"""
-=============================================================
-  Business Sales Performance Analytics
-  Future Interns – Data Science & Analytics Task 1 (2026)
-  Dataset: Online Retail (UCI / Kaggle)
-=============================================================
-
-SETUP (run once in your terminal / Anaconda Prompt):
-    pip install pandas matplotlib seaborn
-  OR in Anaconda:
-    conda install pandas matplotlib seaborn
-
-Run this script:
-    python online_retail_analysis.py
-"""
-
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+import matplotlib.patches as mpatches
+import matplotlib.gridspec as gridspec
+from matplotlib.patches import FancyBboxPatch
 import seaborn as sns
+import numpy as np
 import warnings
-
 warnings.filterwarnings("ignore")
 
-# ── Aesthetic config ──────────────────────────────────────
-sns.set_theme(style="darkgrid", palette="muted")
-plt.rcParams.update({
-    "figure.facecolor": "#0f172a",
-    "axes.facecolor":   "#1e293b",
-    "axes.edgecolor":   "#334155",
-    "axes.labelcolor":  "#e2e8f0",
-    "xtick.color":      "#94a3b8",
-    "ytick.color":      "#94a3b8",
-    "text.color":       "#e2e8f0",
-    "grid.color":       "#334155",
-    "grid.linestyle":   "--",
-    "grid.alpha":       0.5,
-    "font.family":      "DejaVu Sans",
-})
-ACCENT   = "#38bdf8"   # sky-blue
-ACCENT2  = "#fb923c"   # orange
-ACCENT3  = "#a78bfa"   # purple
-ACCENT4  = "#34d399"   # green
-
-# ════════════════════════════════════════════════════════════
-# 1. LOAD DATA
-# ════════════════════════════════════════════════════════════
-print("Loading data …")
-df = pd.read_csv(
-    "online_retail.csv",
-    encoding="ISO-8859-1",   # handles special characters in descriptions
-    dtype={"CustomerID": str}
-)
-print(f"  Raw shape: {df.shape[0]:,} rows × {df.shape[1]} columns")
-
-# ════════════════════════════════════════════════════════════
-# 2. DATA CLEANING
-# ════════════════════════════════════════════════════════════
-print("\nCleaning data …")
-
-# Parse dates
+# ── load & clean ──────────────────────────────────────────
+df = pd.read_csv("online_retail.csv", encoding="ISO-8859-1", dtype={"CustomerID": str})
 df["InvoiceDate"] = pd.to_datetime(df["InvoiceDate"])
-
-# Drop rows missing Description or CustomerID
 df.dropna(subset=["Description", "CustomerID"], inplace=True)
-
-# Remove cancellations (InvoiceNo starting with 'C')
 df = df[~df["InvoiceNo"].astype(str).str.startswith("C")]
-
-# Remove non-positive quantities and prices
 df = df[(df["Quantity"] > 0) & (df["UnitPrice"] > 0)]
-
-# Create Revenue column
-df["Revenue"] = df["Quantity"] * df["UnitPrice"]
-
-# Extract date parts
-df["Year"]       = df["InvoiceDate"].dt.year
-df["Month"]      = df["InvoiceDate"].dt.month
-df["YearMonth"]  = df["InvoiceDate"].dt.to_period("M")
-df["DayOfWeek"]  = df["InvoiceDate"].dt.day_name()
-
-print(f"  Clean shape: {df.shape[0]:,} rows  |  "
-      f"Date range: {df['InvoiceDate'].min().date()} → {df['InvoiceDate'].max().date()}")
-print(f"  Total Revenue: £{df['Revenue'].sum():,.2f}")
-print(f"  Unique Customers: {df['CustomerID'].nunique():,}")
-print(f"  Unique Products:  {df['StockCode'].nunique():,}")
-print(f"  Countries:        {df['Country'].nunique():,}")
-
-# ════════════════════════════════════════════════════════════
-# 3. ANALYSIS & VISUALISATION
-# ════════════════════════════════════════════════════════════
-
-def money(x, _):
-    """Format large numbers as £ with K/M suffix."""
-    if x >= 1_000_000:
-        return f"£{x/1_000_000:.1f}M"
-    elif x >= 1_000:
-        return f"£{x/1_000:.0f}K"
-    return f"£{x:.0f}"
-
-fig = plt.figure(figsize=(20, 24))
-fig.patch.set_facecolor("#0f172a")
-
-title_kw = dict(color="#f1f5f9", fontsize=13, fontweight="bold", pad=12)
-COLORS_BAR = [ACCENT, ACCENT2, ACCENT3, ACCENT4,
-              "#f472b6", "#facc15", "#22d3ee", "#e879f9",
-              "#4ade80", "#f87171"]
-
-# ── Plot 1: Monthly Revenue Trend ────────────────────────
-ax1 = fig.add_subplot(4, 2, (1, 2))   # full-width
-monthly = df.groupby("YearMonth")["Revenue"].sum().reset_index()
-monthly["YearMonth_str"] = monthly["YearMonth"].astype(str)
-
-ax1.fill_between(monthly["YearMonth_str"], monthly["Revenue"],
-                 alpha=0.25, color=ACCENT)
-ax1.plot(monthly["YearMonth_str"], monthly["Revenue"],
-         color=ACCENT, linewidth=2.5, marker="o", markersize=5)
-ax1.set_title("📈  Monthly Revenue Trend", **title_kw)
-ax1.set_ylabel("Revenue (£)")
-ax1.yaxis.set_major_formatter(mticker.FuncFormatter(money))
-ax1.tick_params(axis="x", rotation=45)
-
-# Annotate peak
-peak_idx = monthly["Revenue"].idxmax()
-ax1.annotate(
-    f"Peak: {money(monthly['Revenue'][peak_idx], None)}",
-    xy=(monthly["YearMonth_str"][peak_idx], monthly["Revenue"][peak_idx]),
-    xytext=(0, 16), textcoords="offset points",
-    arrowprops=dict(arrowstyle="->", color=ACCENT2),
-    color=ACCENT2, fontsize=9, fontweight="bold"
-)
-
-# ── Plot 2: Top 10 Products by Revenue ───────────────────
-ax2 = fig.add_subplot(4, 2, 3)
-top_products = (
-    df.groupby("Description")["Revenue"]
-    .sum()
-    .nlargest(10)
-    .sort_values()
-)
-bars = ax2.barh(top_products.index, top_products.values,
-                color=COLORS_BAR[::-1], edgecolor="none", height=0.65)
-ax2.set_title("🏆  Top 10 Products by Revenue", **title_kw)
-ax2.xaxis.set_major_formatter(mticker.FuncFormatter(money))
-for bar in bars:
-    ax2.text(bar.get_width() + bar.get_width() * 0.01,
-             bar.get_y() + bar.get_height() / 2,
-             money(bar.get_width(), None),
-             va="center", fontsize=8, color="#94a3b8")
-
-# ── Plot 3: Top 10 Countries by Revenue ──────────────────
-ax3 = fig.add_subplot(4, 2, 4)
-top_countries = (
-    df[df["Country"] != "United Kingdom"]   # exclude UK to see others better
-    .groupby("Country")["Revenue"]
-    .sum()
-    .nlargest(10)
-    .sort_values()
-)
-bars3 = ax3.barh(top_countries.index, top_countries.values,
-                 color=COLORS_BAR, edgecolor="none", height=0.65)
-ax3.set_title("🌍  Top 10 Countries by Revenue (excl. UK)", **title_kw)
-ax3.xaxis.set_major_formatter(mticker.FuncFormatter(money))
-for bar in bars3:
-    ax3.text(bar.get_width() + bar.get_width() * 0.01,
-             bar.get_y() + bar.get_height() / 2,
-             money(bar.get_width(), None),
-             va="center", fontsize=8, color="#94a3b8")
-
-# ── Plot 4: Revenue by Day of Week ───────────────────────
-ax4 = fig.add_subplot(4, 2, 5)
-day_order = ["Monday", "Tuesday", "Wednesday",
-             "Thursday", "Friday", "Saturday", "Sunday"]
-dow = (df.groupby("DayOfWeek")["Revenue"]
-         .sum()
-         .reindex(day_order, fill_value=0))
-bar4 = ax4.bar(dow.index, dow.values, color=ACCENT3,
-               edgecolor="none", width=0.6)
-ax4.set_title("📅  Revenue by Day of Week", **title_kw)
-ax4.yaxis.set_major_formatter(mticker.FuncFormatter(money))
-ax4.tick_params(axis="x", rotation=30)
-# highlight max day
-max_day = dow.idxmax()
-bar4[list(dow.index).index(max_day)].set_color(ACCENT2)
-
-# ── Plot 5: Monthly Order Volume ─────────────────────────
-ax5 = fig.add_subplot(4, 2, 6)
-monthly_orders = (
-    df.groupby("YearMonth")["InvoiceNo"]
-    .nunique()
-    .reset_index()
-)
-monthly_orders["YearMonth_str"] = monthly_orders["YearMonth"].astype(str)
-ax5.bar(monthly_orders["YearMonth_str"], monthly_orders["InvoiceNo"],
-        color=ACCENT4, edgecolor="none", width=0.7)
-ax5.set_title("📦  Monthly Order Volume", **title_kw)
-ax5.set_ylabel("# Invoices")
-ax5.tick_params(axis="x", rotation=45)
-
-# ── Plot 6: Revenue Distribution by Country (Pie) ────────
-ax6 = fig.add_subplot(4, 2, 7)
-country_rev = df.groupby("Country")["Revenue"].sum()
-# Group small countries into "Others"
-threshold = country_rev.sum() * 0.01
-major = country_rev[country_rev >= threshold]
-others = country_rev[country_rev < threshold].sum()
-pie_data = pd.concat([major, pd.Series({"Others": others})])
-pie_data = pie_data.sort_values(ascending=False)
-
-wedges, texts, autotexts = ax6.pie(
-    pie_data.values,
-    labels=pie_data.index,
-    autopct="%1.1f%%",
-    colors=sns.color_palette("cool", len(pie_data)),
-    startangle=140,
-    pctdistance=0.75,
-    wedgeprops=dict(edgecolor="#0f172a", linewidth=1.5)
-)
-for t in texts:    t.set_fontsize(7.5); t.set_color("#cbd5e1")
-for t in autotexts: t.set_fontsize(7);  t.set_color("#f1f5f9")
-ax6.set_title("🥧  Revenue Share by Country", **title_kw)
-
-# ── Plot 7: Top 10 Products by Quantity Sold ─────────────
-ax7 = fig.add_subplot(4, 2, 8)
-top_qty = (
-    df.groupby("Description")["Quantity"]
-    .sum()
-    .nlargest(10)
-    .sort_values()
-)
-ax7.barh(top_qty.index, top_qty.values,
-         color=COLORS_BAR[::-1], edgecolor="none", height=0.65)
-ax7.set_title("📊  Top 10 Products by Quantity Sold", **title_kw)
-ax7.xaxis.set_major_formatter(
-    mticker.FuncFormatter(lambda x, _: f"{x/1000:.0f}K" if x >= 1000 else str(int(x)))
-)
-
-# ── Super title & layout ─────────────────────────────────
-fig.suptitle(
-    "Business Sales Performance Analytics  ·  Online Retail Dataset",
-    fontsize=17, fontweight="bold", color="#f8fafc", y=1.005
-)
-fig.text(0.5, -0.005,
-         "Source: UCI Online Retail Dataset  |  Analysis by Future Interns Task 1",
-         ha="center", fontsize=9, color="#64748b")
-
-plt.tight_layout(h_pad=3.5, w_pad=3)
-plt.savefig("sales_dashboard.png", dpi=150, bbox_inches="tight",
-            facecolor="#0f172a")
-print("\n✅  Dashboard saved → sales_dashboard.png")
-
-# ════════════════════════════════════════════════════════════
-# 4. KEY INSIGHTS REPORT (printed to console)
-# ════════════════════════════════════════════════════════════
-print("\n" + "═" * 60)
-print("  KEY BUSINESS INSIGHTS")
-print("═" * 60)
+df["Revenue"]   = df["Quantity"] * df["UnitPrice"]
+df["YearMonth"] = df["InvoiceDate"].dt.to_period("M")
+df["DayOfWeek"] = df["InvoiceDate"].dt.day_name()
+df["Year"]      = df["InvoiceDate"].dt.year
 
 total_rev  = df["Revenue"].sum()
 total_ord  = df["InvoiceNo"].nunique()
 total_cust = df["CustomerID"].nunique()
 avg_order  = total_rev / total_ord
 
-print(f"\n📌 Overview")
-print(f"   Total Revenue   : £{total_rev:,.2f}")
-print(f"   Total Orders    : {total_ord:,}")
-print(f"   Unique Customers: {total_cust:,}")
-print(f"   Avg Order Value : £{avg_order:,.2f}")
+# ── colour system ─────────────────────────────────────────
+BG       = "#050d1a"
+CARD     = "#0d1f35"
+CARD2    = "#0a1828"
+BORDER   = "#1a3a5c"
+CYAN     = "#00d4ff"
+GOLD     = "#ffd700"
+ORANGE   = "#ff6b35"
+PURPLE   = "#a855f7"
+GREEN    = "#10b981"
+PINK     = "#f472b6"
+TEXT     = "#e2e8f0"
+MUTED    = "#64748b"
+WHITE    = "#f8fafc"
 
-print(f"\n🏆 Top 5 Products by Revenue")
-for i, (prod, rev) in enumerate(
-    df.groupby("Description")["Revenue"].sum().nlargest(5).items(), 1
-):
-    print(f"   {i}. {prod[:45]:<45}  £{rev:>10,.2f}")
+BAR_PAL  = [CYAN, ORANGE, PURPLE, GREEN, PINK,
+            "#facc15", "#22d3ee", "#e879f9", "#4ade80", "#f87171"]
 
-print(f"\n🌍 Top 5 Countries by Revenue")
-for i, (country, rev) in enumerate(
-    df.groupby("Country")["Revenue"].sum().nlargest(5).items(), 1
-):
-    pct = rev / total_rev * 100
-    print(f"   {i}. {country:<25}  £{rev:>10,.2f}  ({pct:.1f}%)")
+def fmt(x, _=None):
+    if x >= 1_000_000: return f"£{x/1_000_000:.1f}M"
+    if x >= 1_000:     return f"£{x/1_000:.0f}K"
+    return f"£{x:.0f}"
 
-print(f"\n📅 Best Day for Sales")
-best_day = df.groupby("DayOfWeek")["Revenue"].sum().idxmax()
-print(f"   {best_day} generates the highest revenue")
+# ── figure ────────────────────────────────────────────────
+fig = plt.figure(figsize=(28, 16), facecolor=BG)
+gs  = gridspec.GridSpec(
+    3, 4,
+    figure=fig,
+    hspace=0.52,
+    wspace=0.38,
+    left=0.04, right=0.97,
+    top=0.84,  bottom=0.07
+)
 
-print(f"\n📈 Revenue Trend")
-yr_rev = df.groupby("Year")["Revenue"].sum()
-for yr, rev in yr_rev.items():
-    print(f"   {yr}: £{rev:,.2f}")
+def style_ax(ax, title):
+    ax.set_facecolor(CARD)
+    for spine in ax.spines.values():
+        spine.set_edgecolor(BORDER)
+        spine.set_linewidth(0.8)
+    ax.tick_params(colors=MUTED, labelsize=8)
+    ax.set_title(title, color=WHITE, fontsize=10.5,
+                 fontweight="bold", pad=10, loc="left")
+    ax.grid(color=BORDER, linestyle="--", linewidth=0.5, alpha=0.6)
+    ax.set_axisbelow(True)
 
-print(f"\n💡 Recommendations")
-print("   1. Increase stock of top 5 revenue products ahead of Q4.")
-print("   2. Run targeted promotions on low-revenue weekdays.")
-print("   3. Expand marketing in Netherlands & EIRE (fastest-growing markets).")
-print("   4. Launch a loyalty programme — repeat customers drive ~80% of revenue.")
-print("   5. Investigate Nov–Dec spike: replicate conditions year-round.")
+# ── KPI cards row ─────────────────────────────────────────
+kpis = [
+    ("TOTAL REVENUE",    f"£{total_rev/1_000_000:.2f}M", CYAN,   "12-month online retail"),
+    ("TOTAL ORDERS",     f"{total_ord:,}",               GOLD,   "Unique invoices"),
+    ("UNIQUE CUSTOMERS", f"{total_cust:,}",              GREEN,  "Active buyers"),
+    ("AVG ORDER VALUE",  f"£{avg_order:.0f}",            ORANGE, "Per invoice"),
+]
+for col, (label, val, color, sub) in enumerate(kpis):
+    ax_k = fig.add_subplot(gs[0, col])
+    ax_k.set_facecolor(CARD2)
+    for spine in ax_k.spines.values():
+        spine.set_edgecolor(color)
+        spine.set_linewidth(1.5)
+    ax_k.set_xticks([]); ax_k.set_yticks([])
 
-print("\n" + "═" * 60)
-print("  Run complete. Open sales_dashboard.png to view charts.")
-print("═" * 60)
+    ax_k.text(0.5, 0.72, val, transform=ax_k.transAxes,
+              ha="center", va="center",
+              fontsize=26, fontweight="bold", color=color)
+    ax_k.text(0.5, 0.35, label, transform=ax_k.transAxes,
+              ha="center", va="center",
+              fontsize=8.5, fontweight="bold", color=MUTED)
+    ax_k.text(0.5, 0.12, sub, transform=ax_k.transAxes,
+              ha="center", va="center",
+              fontsize=7.5, color=MUTED)
+    # accent bar at top
+    ax_k.axhline(y=ax_k.get_ylim()[1] if ax_k.get_ylim()[1] != 1.0 else 0.98,
+                 xmin=0.1, xmax=0.9, color=color, linewidth=2.5)
+
+# ── Chart 1: Monthly Revenue Trend (spans 2 cols) ─────────
+ax1 = fig.add_subplot(gs[1, :2])
+style_ax(ax1, "📈  Monthly Revenue Trend")
+
+monthly = df.groupby("YearMonth")["Revenue"].sum().reset_index()
+monthly["lbl"] = monthly["YearMonth"].astype(str)
+x = np.arange(len(monthly))
+
+ax1.fill_between(x, monthly["Revenue"], alpha=0.18, color=CYAN)
+ax1.plot(x, monthly["Revenue"], color=CYAN, linewidth=2.5,
+         marker="o", markersize=5, zorder=3)
+
+# gradient glow effect
+ax1.fill_between(x, monthly["Revenue"], alpha=0.06, color=CYAN)
+
+peak = monthly["Revenue"].idxmax()
+ax1.scatter(x[peak], monthly["Revenue"][peak], color=GOLD,
+            s=120, zorder=5, edgecolors=BG, linewidths=1.5)
+ax1.annotate(
+    f"  Peak {fmt(monthly['Revenue'][peak])}",
+    xy=(x[peak], monthly["Revenue"][peak]),
+    color=GOLD, fontsize=8.5, fontweight="bold", va="bottom"
+)
+
+ax1.set_xticks(x[::2])
+ax1.set_xticklabels(monthly["lbl"].iloc[::2], rotation=40, ha="right", fontsize=7.5)
+ax1.yaxis.set_major_formatter(mticker.FuncFormatter(fmt))
+ax1.set_ylabel("Revenue (£)", color=MUTED, fontsize=8)
+
+
+# ── Chart 2: Top 10 Products (spans 2 cols) ───────────────
+ax2 = fig.add_subplot(gs[1, 2:])
+style_ax(ax2, "🏆  Top 10 Products by Revenue")
+
+top_p = df.groupby("Description")["Revenue"].sum().nlargest(10).sort_values()
+# shorten long names
+short = [n[:38] + "…" if len(n) > 38 else n for n in top_p.index]
+colors_bar = BAR_PAL[::-1]
+
+bars = ax2.barh(short, top_p.values, color=colors_bar,
+                edgecolor="none", height=0.65)
+for bar, val in zip(bars, top_p.values):
+    ax2.text(bar.get_width() + top_p.max() * 0.01,
+             bar.get_y() + bar.get_height() / 2,
+             fmt(val), va="center", fontsize=8, color=MUTED)
+
+ax2.xaxis.set_major_formatter(mticker.FuncFormatter(fmt))
+ax2.set_xlabel("Revenue (£)", color=MUTED, fontsize=8)
+ax2.tick_params(axis="y", labelsize=7.8)
+
+
+# ── Chart 3: Revenue by Day of Week ───────────────────────
+ax3 = fig.add_subplot(gs[2, 0])
+style_ax(ax3, "📅  Revenue by Day")
+
+days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+day_map = {"Monday":"Mon","Tuesday":"Tue","Wednesday":"Wed",
+           "Thursday":"Thu","Friday":"Fri","Saturday":"Sat","Sunday":"Sun"}
+dow = df.groupby("DayOfWeek")["Revenue"].sum()
+dow.index = dow.index.map(day_map)
+dow = dow.reindex(days, fill_value=0)
+
+bar_colors_d = [ORANGE if d == day_map[df.groupby("DayOfWeek")["Revenue"].sum().idxmax()]
+                else PURPLE for d in days]
+b3 = ax3.bar(dow.index, dow.values, color=bar_colors_d,
+             edgecolor="none", width=0.6)
+ax3.yaxis.set_major_formatter(mticker.FuncFormatter(fmt))
+
+
+# ── Chart 4: Top Countries ────────────────────────────────
+ax4 = fig.add_subplot(gs[2, 1])
+style_ax(ax4, "🌍  Top Markets (excl. UK)")
+
+top_c = (df[df["Country"] != "United Kingdom"]
+         .groupby("Country")["Revenue"].sum()
+         .nlargest(8).sort_values())
+b4 = ax4.barh(top_c.index, top_c.values,
+              color=BAR_PAL[:len(top_c)], edgecolor="none", height=0.6)
+ax4.xaxis.set_major_formatter(mticker.FuncFormatter(fmt))
+ax4.tick_params(axis="y", labelsize=8)
+
+
+# ── Chart 5: Revenue Share Pie ────────────────────────────
+ax5 = fig.add_subplot(gs[2, 2])
+ax5.set_facecolor(CARD)
+for spine in ax5.spines.values():
+    spine.set_edgecolor(BORDER); spine.set_linewidth(0.8)
+ax5.set_title("🥧  Revenue by Country", color=WHITE,
+              fontsize=10.5, fontweight="bold", pad=10, loc="left")
+
+cr = df.groupby("Country")["Revenue"].sum()
+cut = cr.sum() * 0.015
+big = cr[cr >= cut]
+sm  = cr[cr < cut].sum()
+pie_data = pd.concat([big, pd.Series({"Others": sm})]).sort_values(ascending=False)
+
+wedges, texts, autotexts = ax5.pie(
+    pie_data.values,
+    labels=pie_data.index,
+    autopct="%1.0f%%",
+    colors=sns.color_palette("cool", len(pie_data)),
+    startangle=140,
+    pctdistance=0.78,
+    wedgeprops=dict(edgecolor=BG, linewidth=2),
+    radius=0.95
+)
+for t in texts:    t.set_fontsize(7.5); t.set_color(TEXT)
+for t in autotexts: t.set_fontsize(7);  t.set_color(WHITE); t.set_fontweight("bold")
+
+
+# ── Chart 6: Top Products by Qty ──────────────────────────
+ax6 = fig.add_subplot(gs[2, 3])
+style_ax(ax6, "📦  Top Products by Units")
+
+top_q = df.groupby("Description")["Quantity"].sum().nlargest(8).sort_values()
+short_q = [n[:30] + "…" if len(n) > 30 else n for n in top_q.index]
+ax6.barh(short_q, top_q.values, color=BAR_PAL[::-1][:len(top_q)],
+         edgecolor="none", height=0.6)
+ax6.xaxis.set_major_formatter(
+    mticker.FuncFormatter(lambda x, _: f"{x/1000:.0f}K" if x >= 1000 else str(int(x)))
+)
+ax6.tick_params(axis="y", labelsize=7.5)
+
+
+# ── Header ────────────────────────────────────────────────
+fig.text(0.04, 0.955,
+         "BUSINESS SALES PERFORMANCE ANALYTICS",
+         fontsize=22, fontweight="bold", color=WHITE,
+         va="bottom")
+fig.text(0.04, 0.925,
+         "Online Retail Dataset  ·  Dec 2010 – Dec 2011  ·  541,909 transactions  ·  37 countries",
+         fontsize=10, color=MUTED, va="bottom")
+
+# accent line under header
+line = plt.Line2D([0.04, 0.97], [0.915, 0.915],
+                  transform=fig.transFigure,
+                  color=CYAN, linewidth=1.2, alpha=0.5)
+fig.add_artist(line)
+
+# badge top-right
+fig.text(0.97, 0.955,
+         "Future Interns  ·  DS Task 1  ·  2026",
+         fontsize=9, color=MUTED, va="bottom", ha="right")
+
+# footer
+fig.text(0.5, 0.022,
+         "Data: UCI Online Retail Dataset (Kaggle)  ·  Analysis: Python · pandas · matplotlib · seaborn",
+         fontsize=8.5, color=MUTED, ha="center")
+
+plt.savefig("sales_dashboard.png", dpi=180,
+            bbox_inches="tight", facecolor=BG)
+print("Done — sales_dashboard.png saved")
